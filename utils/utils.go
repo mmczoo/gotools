@@ -3,6 +3,7 @@ package utils
 import (
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 )
 
@@ -23,4 +24,33 @@ func GetCWD() string {
 	path, _ := filepath.Abs(file)
 	return path
 	//return filepath.Dir(path)
+}
+
+func PathExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+//filename, paths
+func GenFilePath(filename string, paths ...string) (string, error) {
+	dir := path.Join(paths...)
+
+	ok, err := PathExists(dir)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		err := os.MkdirAll(dir, 0777)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	return path.Join(dir, filename), nil
 }
