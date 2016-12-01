@@ -54,3 +54,17 @@ func GenFilePath(filename string, paths ...string) (string, error) {
 
 	return path.Join(dir, filename), nil
 }
+
+func SaveFile(fn string, datas ...[]byte) error {
+	f, err := os.OpenFile(fn, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	for _, d := range datas {
+		f.Write(d)
+	}
+
+	return nil
+}
