@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"regexp"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	hproxy "github.com/mmczoo/caresm/src/phoneserver/proxy"
 
 	"golang.org/x/net/proxy"
+	"golang.org/x/net/publicsuffix"
 
 	"github.com/axgle/mahonia"
 	"github.com/xlvector/dlog"
@@ -114,7 +116,11 @@ const (
 )
 
 func NewDownloader(wait int) *Downloader {
-	return &Downloader{
+	return NewDownloaderWithJar(wait, false)
+}
+
+func NewDownloaderWithJar(wait int, isjar bool) *Downloader {
+	d := &Downloader{
 		Client: &http.Client{
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				dlog.Warn("CheckRedirect URL:%s", req.URL.String())
@@ -135,6 +141,18 @@ func NewDownloader(wait int) *Downloader {
 			},
 		},
 	}
+	if isjar {
+		options := cookiejar.Options{
+			PublicSuffixList: publicsuffix.List,
+		}
+		jar, err := cookiejar.New(&options)
+		if err != nil {
+			dlog.Error("new cookiejar fail! %s", err)
+		} else {
+			d.Client.Jar = jar
+		}
+	}
+	return d
 }
 
 func decodeCharset(body, contentTypeHeader string) (string, string) {
