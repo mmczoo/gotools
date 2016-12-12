@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	hproxy "github.com/mmczoo/caresm/src/phoneserver/proxy"
+	hproxy "github.com/mmczoo/gotools/proxy"
 
 	"golang.org/x/net/proxy"
 	"golang.org/x/net/publicsuffix"
