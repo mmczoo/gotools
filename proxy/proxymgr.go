@@ -5,9 +5,21 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/redis.v2"
+
 	"github.com/mmczoo/goqueue"
 	"github.com/xlvector/dlog"
 )
+
+type Redis struct {
+	Host    string `json:"host"`
+	DB      int64  `json:"db"`
+	Timeout int64  `json:"timeout"`
+
+	Keys []string
+
+	RefreshIntv int
+}
 
 type ProxyMgr struct {
 	l1 *goqueue.Queue
@@ -16,6 +28,9 @@ type ProxyMgr struct {
 
 	ipst   map[uint32]uint
 	fbipst map[uint32]uint
+
+	redisclient *redis.Client
+	rediscfg    *Redis
 }
 
 const (
@@ -32,14 +47,42 @@ type PrivateData struct {
 	LastTime int64
 }
 
-func NewProxyMgr() *ProxyMgr {
-	return &ProxyMgr{
+func NewProxyMgr(r *Redis) *ProxyMgr {
+	if r == nil && len(r.Keys) <= 0 {
+		return nil
+	}
+	pm := &ProxyMgr{
 		l1: goqueue.New(Q_MAX_SIZE),
 		l2: goqueue.New(Q_MAX_SIZE),
 		l3: goqueue.New(Q_MAX_SIZE),
 
 		ipst:   make(map[uint32]uint),
 		fbipst: make(map[uint32]uint),
+
+		rediscfg: r,
+		redisclient: redis.NewTCPClient(&redis.Options{
+			Addr:        r.Host,
+			DB:          r.DB,
+			DialTimeout: time.Duration(r.Timeout) * time.Second,
+		}),
+	}
+
+	if pm.rediscfg.RefreshIntv < 5 {
+		pm.rediscfg.RefreshIntv = 5
+	}
+
+	go pm.refresh()
+
+	return pm
+}
+
+func (p *ProxyMgr) refresh() {
+	t := time.NewTicker(p.rediscfg.RefreshIntv * time.Second)
+
+	for {
+		for k, v := range p.rediscfg.Keys {
+			<-t.C
+		}
 	}
 }
 
@@ -107,11 +150,11 @@ func (p *ProxyMgr) FeedBack(px *Proxy) {
 		return
 	}
 
-	val, ok := p.ipst[private.Ipv4]
+	val, ok := p.fbipst[private.Ipv4]
 	if ok {
-		p.ipst[private.Ipv4] = val + 1
+		p.fbipst[private.Ipv4] = val + 1
 	} else {
-		p.ipst[private.Ipv4] = 1
+		p.fbipst[private.Ipv4] = 1
 	}
 
 	switch private.Level {
@@ -167,4 +210,44 @@ lab_succ:
 	}
 
 	return rpx
+}
+
+func inetitoa(ip uint32) string {
+	a1 := int(ip & 0x000000FF)
+	a2 := int((ip >> 8) & 0x000000FF)
+	a3 := int((ip >> 16) & 0x000000FF)
+	a4 := int((ip >> 24) & 0x000000FF)
+
+	return strconv.Itoa(a1) + "." + strconv.Itoa(a2) + "." + strconv.Itoa(a3) + "." + strconv.Itoa(a4)
+}
+
+func (p *ProxyMgr) GetFBIpst() map[string]uint {
+	max := 1000
+	ret := make(map[string]uint)
+
+	for k, v := range p.fbipst {
+		max -= 1
+		if max <= 0 {
+			break
+		}
+		ip := inetitoa(k)
+		ret[ip] = v
+	}
+
+	return ret
+}
+
+func (p *ProxyMgr) GetIpst() map[string]uint {
+	max := 1000
+	ret := make(map[string]uint)
+
+	for k, v := range p.ipst {
+		max -= 1
+		if max <= 0 {
+			break
+		}
+		ip := inetitoa(k)
+		ret[ip] = v
+	}
+	return ret
 }
