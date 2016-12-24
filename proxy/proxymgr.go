@@ -16,7 +16,7 @@ type Redis struct {
 	DB      int64  `json:"db"`
 	Timeout int64  `json:"timeout"`
 
-	Keys []string
+	Keys map[string]int64
 
 	RefreshIntv int
 }
@@ -77,11 +77,17 @@ func NewProxyMgr(r *Redis) *ProxyMgr {
 }
 
 func (p *ProxyMgr) refresh() {
-	t := time.NewTicker(p.rediscfg.RefreshIntv * time.Second)
+	t := time.NewTicker(time.Duration(p.rediscfg.RefreshIntv) * time.Second)
 
 	for {
 		for k, v := range p.rediscfg.Keys {
 			<-t.C
+			slc := p.redisclient.LRange(k, 0, v)
+			ips := slc.Val()
+			dlog.Info("lrange: %s", len(ips))
+			for _, ip := range ips {
+				p.Add(ip)
+			}
 		}
 	}
 }
