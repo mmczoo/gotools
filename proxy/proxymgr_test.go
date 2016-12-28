@@ -1,6 +1,9 @@
 package proxy
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestInet(t *testing.T) {
 	a := "100.12.1.1"
@@ -10,7 +13,7 @@ func TestInet(t *testing.T) {
 }
 
 func TestMgr(t *testing.T) {
-	pm := NewProxyMgr(&Redis{"10.1.192.18:6379", 1, 300})
+	pm := NewProxyMgr(&Redis{"127.0.0.1:6379", 0, 300, map[string]int64{"proxies": 20}, 60})
 
 	addr := "http://1.1.1.1:90"
 	pm.Add(addr)
@@ -47,7 +50,8 @@ func TestInetI(t *testing.T) {
 }
 
 func TestMgr2(t *testing.T) {
-	pm := NewProxyMgr(&Redis{"10.1.192.18:6379", 0, 300})
+	pm := NewProxyMgr(&Redis{"127.0.0.1:6379", 0, 300, map[string]int64{"proxy_ip181": 20}, 60})
+	time.Sleep(2 * time.Second)
 
 	addr := "http://1.1.1.1:90"
 	pm.Add(addr)

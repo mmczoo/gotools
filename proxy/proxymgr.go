@@ -81,13 +81,14 @@ func (p *ProxyMgr) refresh() {
 
 	for {
 		for k, v := range p.rediscfg.Keys {
-			<-t.C
 			slc := p.redisclient.LRange(k, 0, v)
 			ips := slc.Val()
-			dlog.Info("lrange: %s", len(ips))
+			dlog.Info("lrange: %d", len(ips))
 			for _, ip := range ips {
 				p.Add(ip)
 			}
+
+			<-t.C
 		}
 	}
 }
