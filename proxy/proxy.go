@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	//	"fmt"
 	"net"
 	"strings"
 	"time"
@@ -57,6 +58,22 @@ func (p *Proxy) String() string {
 	}
 	ret += p.IP
 	return ret
+}
+
+func (p *Proxy) HostPort() (string, string) {
+	/* slow very very
+	var host, port string
+	_, err := fmt.Scanf("%s:%s", p.IP, host, port)
+	if err != nil {
+		return p.IP, ""
+	}
+	*/
+
+	tmp := strings.Split(p.IP, ":")
+	if len(tmp) != 2 {
+		return p.IP, ""
+	}
+	return tmp[0], tmp[1]
 }
 
 func (p *Proxy) Available() bool {
