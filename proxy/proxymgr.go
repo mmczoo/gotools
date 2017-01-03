@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"gopkg.in/redis.v2"
 
 	"github.com/mmczoo/goqueue"
+	"github.com/seefan/gossdb"
 	"github.com/xlvector/dlog"
 )
 
@@ -15,6 +17,15 @@ type Redis struct {
 	Host    string `json:"host"`
 	DB      int64  `json:"db"`
 	Timeout int64  `json:"timeout"`
+
+	Keys map[string]int64
+
+	RefreshIntv int
+}
+
+type Ssdb struct {
+	Host string `json:"host"`
+	Port int    `json:"port"`
 
 	Keys map[string]int64
 
@@ -31,6 +42,10 @@ type ProxyMgr struct {
 
 	redisclient *redis.Client
 	rediscfg    *Redis
+
+	ssdbcfg    *Ssdb
+	pool       *gossdb.Connectors
+	ssdbclient *gossdb.Client
 }
 
 const (
@@ -45,6 +60,50 @@ type PrivateData struct {
 	Ipv4     uint32
 	Level    int
 	LastTime int64
+}
+
+func NewProxyMgrWithSsdb(r *Ssdb) *ProxyMgr {
+	if r == nil && len(r.Keys) <= 0 {
+		return nil
+	}
+	pm := &ProxyMgr{
+		l1: goqueue.New(Q_MAX_SIZE),
+		l2: goqueue.New(Q_MAX_SIZE),
+		l3: goqueue.New(Q_MAX_SIZE),
+
+		ipst:   make(map[uint32]uint),
+		fbipst: make(map[uint32]uint),
+
+		ssdbcfg: r,
+	}
+
+	pool, err := gossdb.NewPool(&gossdb.Config{
+		Host:             r.Host,
+		Port:             r.Port,
+		MinPoolSize:      5,
+		MaxPoolSize:      50,
+		AcquireIncrement: 1,
+	})
+	if err != nil {
+		log.Fatal(err)
+		return nil
+	}
+
+	c, err := pool.NewClient()
+	if err != nil {
+		log.Fatal(err)
+		return nil
+	}
+	pm.ssdbclient = c
+	pm.pool = pool
+
+	if pm.ssdbcfg.RefreshIntv < 5 {
+		pm.ssdbcfg.RefreshIntv = 5
+	}
+
+	go pm.refreshFromSsdb()
+
+	return pm
 }
 
 func NewProxyMgr(r *Redis) *ProxyMgr {
@@ -74,6 +133,30 @@ func NewProxyMgr(r *Redis) *ProxyMgr {
 	go pm.refresh()
 
 	return pm
+}
+
+func (p *ProxyMgr) refreshFromSsdb() {
+	try := 0
+	t := time.NewTicker(time.Duration(p.ssdbcfg.RefreshIntv) * time.Second)
+
+	for {
+		for k, v := range p.ssdbcfg.Keys {
+			ret, err := p.ssdbclient.Zrrange(k, 0, v)
+			if err != nil {
+				try++
+				if try >= 3 {
+					<-t.C
+					try = 0
+				}
+				continue
+			}
+			dlog.Info("zrrange: %d", len(ret))
+			for ip, _ := range ret {
+				p.Add(ip)
+			}
+			<-t.C
+		}
+	}
 }
 
 func (p *ProxyMgr) refresh() {
