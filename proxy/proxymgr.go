@@ -18,18 +18,18 @@ type Redis struct {
 	DB      int64  `json:"db"`
 	Timeout int64  `json:"timeout"`
 
-	Keys map[string]int64
+	Keys map[string]int64 `json:"keys"`
 
-	RefreshIntv int
+	RefreshIntv int `json:"refreshintv"`
 }
 
 type Ssdb struct {
 	Host string `json:"host"`
 	Port int    `json:"port"`
 
-	Keys map[string]int64
+	Keys map[string]int64 `json:"keys"`
 
-	RefreshIntv int
+	RefreshIntv int `json:"refreshintv"`
 }
 
 type ProxyMgr struct {
