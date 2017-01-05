@@ -4,6 +4,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/redis.v2"
@@ -40,6 +41,9 @@ type ProxyMgr struct {
 	ipst   map[uint32]uint
 	fbipst map[uint32]uint
 
+	ipstlock   *sync.RWMutex
+	fbipstlock *sync.RWMutex
+
 	redisclient *redis.Client
 	rediscfg    *Redis
 
@@ -73,6 +77,9 @@ func NewProxyMgrWithSsdb(r *Ssdb) *ProxyMgr {
 
 		ipst:   make(map[uint32]uint),
 		fbipst: make(map[uint32]uint),
+
+		ipstlock:   &sync.RWMutex{},
+		fbipstlock: &sync.RWMutex{},
 
 		ssdbcfg: r,
 	}
@@ -117,6 +124,9 @@ func NewProxyMgr(r *Redis) *ProxyMgr {
 
 		ipst:   make(map[uint32]uint),
 		fbipst: make(map[uint32]uint),
+
+		ipstlock:   &sync.RWMutex{},
+		fbipstlock: &sync.RWMutex{},
 
 		rediscfg: r,
 		redisclient: redis.NewTCPClient(&redis.Options{
@@ -240,12 +250,14 @@ func (p *ProxyMgr) FeedBack(px *Proxy) {
 		return
 	}
 
+	p.fbipstlock.Lock()
 	val, ok := p.fbipst[private.Ipv4]
 	if ok {
 		p.fbipst[private.Ipv4] = val + 1
 	} else {
 		p.fbipst[private.Ipv4] = 1
 	}
+	p.fbipstlock.Unlock()
 
 	switch private.Level {
 	case P_LEVEL_ONE:
@@ -289,12 +301,14 @@ lab_succ:
 	priv := rpx.GetPrivate()
 	private, ok := priv.(*PrivateData)
 	if ok {
+		p.ipstlock.Lock()
 		val, ok := p.ipst[private.Ipv4]
 		if ok {
 			p.ipst[private.Ipv4] = val + 1
 		} else {
 			p.ipst[private.Ipv4] = 1
 		}
+		p.ipstlock.Unlock()
 
 		private.LastTime = time.Now().Unix()
 	}
@@ -315,6 +329,7 @@ func (p *ProxyMgr) GetFBIpst() map[string]uint {
 	max := 1000
 	ret := make(map[string]uint)
 
+	p.fbipstlock.RLock()
 	for k, v := range p.fbipst {
 		max -= 1
 		if max <= 0 {
@@ -323,6 +338,7 @@ func (p *ProxyMgr) GetFBIpst() map[string]uint {
 		ip := inetitoa(k)
 		ret[ip] = v
 	}
+	p.fbipstlock.RUnlock()
 
 	return ret
 }
@@ -331,6 +347,7 @@ func (p *ProxyMgr) GetIpst() map[string]uint {
 	max := 1000
 	ret := make(map[string]uint)
 
+	p.ipstlock.RLock()
 	for k, v := range p.ipst {
 		max -= 1
 		if max <= 0 {
@@ -339,5 +356,6 @@ func (p *ProxyMgr) GetIpst() map[string]uint {
 		ip := inetitoa(k)
 		ret[ip] = v
 	}
+	p.ipstlock.RUnlock()
 	return ret
 }
