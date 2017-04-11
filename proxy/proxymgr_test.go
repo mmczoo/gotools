@@ -81,3 +81,36 @@ func TestMgr2(t *testing.T) {
 	t.Logf("%#v %#v\n", px, px.GetPrivate())
 
 }
+
+func TestMgr3(t *testing.T) {
+	pm := NewProxyMgrWithSsdb(&Ssdb{"127.0.0.1", 8888, map[string]int64{"proxy": 20}, 60})
+	time.Sleep(2 * time.Second)
+
+	addr := "http://1.1.1.1:90"
+	pm.Add(addr)
+	addr = "http://hhhhd:99999@1.4.1.1:90"
+	pm.Add(addr)
+
+	px := pm.Get()
+	//fmt.Printf("=======%#v\n", px)
+	t.Logf("=======%#v\n", px)
+
+	px2 := pm.Get()
+	t.Logf("%#v\n", px2)
+
+	px3 := pm.Get()
+	t.Logf("%#v\n", px3)
+
+	t.Logf("%#v\n", pm.GetIpst())
+
+	pm.FeedBack(px)
+	pm.FeedBack(px2)
+	pm.FeedBack(px3)
+
+	t.Logf("%#v\n", pm.GetFBIpst())
+
+	px = pm.Get()
+	t.Logf("%#v\n", pm.GetIpst())
+	t.Logf("%#v %#v\n", px, px.GetPrivate())
+
+}

@@ -1,13 +1,16 @@
 package proxy
 
 import (
+	"log"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/redis.v2"
 
 	"github.com/mmczoo/goqueue"
+	"github.com/seefan/gossdb"
 	"github.com/xlvector/dlog"
 )
 
@@ -16,9 +19,18 @@ type Redis struct {
 	DB      int64  `json:"db"`
 	Timeout int64  `json:"timeout"`
 
-	Keys map[string]int64
+	Keys map[string]int64 `json:"keys"`
 
-	RefreshIntv int
+	RefreshIntv int `json:"refreshintv"`
+}
+
+type Ssdb struct {
+	Host string `json:"host"`
+	Port int    `json:"port"`
+
+	Keys map[string]int64 `json:"keys"`
+
+	RefreshIntv int `json:"refreshintv"`
 }
 
 type ProxyMgr struct {
@@ -29,8 +41,15 @@ type ProxyMgr struct {
 	ipst   map[uint32]uint
 	fbipst map[uint32]uint
 
+	ipstlock   *sync.RWMutex
+	fbipstlock *sync.RWMutex
+
 	redisclient *redis.Client
 	rediscfg    *Redis
+
+	ssdbcfg    *Ssdb
+	pool       *gossdb.Connectors
+	ssdbclient *gossdb.Client
 }
 
 const (
@@ -47,6 +66,53 @@ type PrivateData struct {
 	LastTime int64
 }
 
+func NewProxyMgrWithSsdb(r *Ssdb) *ProxyMgr {
+	if r == nil && len(r.Keys) <= 0 {
+		return nil
+	}
+	pm := &ProxyMgr{
+		l1: goqueue.New(Q_MAX_SIZE),
+		l2: goqueue.New(Q_MAX_SIZE),
+		l3: goqueue.New(Q_MAX_SIZE),
+
+		ipst:   make(map[uint32]uint),
+		fbipst: make(map[uint32]uint),
+
+		ipstlock:   &sync.RWMutex{},
+		fbipstlock: &sync.RWMutex{},
+
+		ssdbcfg: r,
+	}
+
+	pool, err := gossdb.NewPool(&gossdb.Config{
+		Host:             r.Host,
+		Port:             r.Port,
+		MinPoolSize:      5,
+		MaxPoolSize:      50,
+		AcquireIncrement: 1,
+	})
+	if err != nil {
+		log.Fatal(err)
+		return nil
+	}
+
+	c, err := pool.NewClient()
+	if err != nil {
+		log.Fatal(err)
+		return nil
+	}
+	pm.ssdbclient = c
+	pm.pool = pool
+
+	if pm.ssdbcfg.RefreshIntv < 5 {
+		pm.ssdbcfg.RefreshIntv = 5
+	}
+
+	go pm.refreshFromSsdb()
+
+	return pm
+}
+
 func NewProxyMgr(r *Redis) *ProxyMgr {
 	if r == nil && len(r.Keys) <= 0 {
 		return nil
@@ -58,6 +124,9 @@ func NewProxyMgr(r *Redis) *ProxyMgr {
 
 		ipst:   make(map[uint32]uint),
 		fbipst: make(map[uint32]uint),
+
+		ipstlock:   &sync.RWMutex{},
+		fbipstlock: &sync.RWMutex{},
 
 		rediscfg: r,
 		redisclient: redis.NewTCPClient(&redis.Options{
@@ -74,6 +143,30 @@ func NewProxyMgr(r *Redis) *ProxyMgr {
 	go pm.refresh()
 
 	return pm
+}
+
+func (p *ProxyMgr) refreshFromSsdb() {
+	try := 0
+	t := time.NewTicker(time.Duration(p.ssdbcfg.RefreshIntv) * time.Second)
+
+	for {
+		for k, v := range p.ssdbcfg.Keys {
+			ret, err := p.ssdbclient.Zrrange(k, 0, v)
+			if err != nil {
+				try++
+				if try >= 3 {
+					<-t.C
+					try = 0
+				}
+				continue
+			}
+			dlog.Info("zrrange: %d", len(ret))
+			for ip, _ := range ret {
+				p.Add(ip)
+			}
+			<-t.C
+		}
+	}
 }
 
 func (p *ProxyMgr) refresh() {
@@ -157,12 +250,14 @@ func (p *ProxyMgr) FeedBack(px *Proxy) {
 		return
 	}
 
+	p.fbipstlock.Lock()
 	val, ok := p.fbipst[private.Ipv4]
 	if ok {
 		p.fbipst[private.Ipv4] = val + 1
 	} else {
 		p.fbipst[private.Ipv4] = 1
 	}
+	p.fbipstlock.Unlock()
 
 	switch private.Level {
 	case P_LEVEL_ONE:
@@ -206,12 +301,14 @@ lab_succ:
 	priv := rpx.GetPrivate()
 	private, ok := priv.(*PrivateData)
 	if ok {
+		p.ipstlock.Lock()
 		val, ok := p.ipst[private.Ipv4]
 		if ok {
 			p.ipst[private.Ipv4] = val + 1
 		} else {
 			p.ipst[private.Ipv4] = 1
 		}
+		p.ipstlock.Unlock()
 
 		private.LastTime = time.Now().Unix()
 	}
@@ -232,6 +329,7 @@ func (p *ProxyMgr) GetFBIpst() map[string]uint {
 	max := 1000
 	ret := make(map[string]uint)
 
+	p.fbipstlock.RLock()
 	for k, v := range p.fbipst {
 		max -= 1
 		if max <= 0 {
@@ -240,6 +338,7 @@ func (p *ProxyMgr) GetFBIpst() map[string]uint {
 		ip := inetitoa(k)
 		ret[ip] = v
 	}
+	p.fbipstlock.RUnlock()
 
 	return ret
 }
@@ -248,6 +347,7 @@ func (p *ProxyMgr) GetIpst() map[string]uint {
 	max := 1000
 	ret := make(map[string]uint)
 
+	p.ipstlock.RLock()
 	for k, v := range p.ipst {
 		max -= 1
 		if max <= 0 {
@@ -256,5 +356,6 @@ func (p *ProxyMgr) GetIpst() map[string]uint {
 		ip := inetitoa(k)
 		ret[ip] = v
 	}
+	p.ipstlock.RUnlock()
 	return ret
 }
