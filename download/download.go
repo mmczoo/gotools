@@ -183,12 +183,12 @@ func decodeCharset(body, contentTypeHeader string) (string, string) {
 func (s *Downloader) constructPage(resp *http.Response) error {
 	defer resp.Body.Close()
 	body := make([]byte, 0)
+	buf := make([]byte, 1024)
 	switch resp.Header.Get("Content-Encoding") {
 	case "gzip":
 		reader, _ := gzip.NewReader(resp.Body)
 		defer reader.Close()
 		for {
-			buf := make([]byte, 1024)
 			n, err := reader.Read(buf)
 			if err != nil && err != io.EOF {
 				return err
@@ -200,7 +200,6 @@ func (s *Downloader) constructPage(resp *http.Response) error {
 		}
 	default:
 		for {
-			buf := make([]byte, 1024)
 			n, err := resp.Body.Read(buf)
 			if err != nil && err != io.EOF {
 				return err
