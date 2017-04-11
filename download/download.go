@@ -186,7 +186,10 @@ func (s *Downloader) constructPage(resp *http.Response) error {
 	buf := make([]byte, 1024)
 	switch resp.Header.Get("Content-Encoding") {
 	case "gzip":
-		reader, _ := gzip.NewReader(resp.Body)
+		reader, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return err
+		}
 		defer reader.Close()
 		for {
 			n, err := reader.Read(buf)
@@ -240,7 +243,7 @@ func (s *Downloader) Get(link string, header map[string]string) ([]byte, error) 
 		dlog.Warn("do req error: %v", err)
 		return nil, err
 	}
-	if resp == nil {
+	if resp == nil || resp.Body == nil {
 		return nil, errors.New("nil resp")
 	}
 	err = s.constructPage(resp)
@@ -273,6 +276,9 @@ func (s *Downloader) Post(link string, params map[string]string, header map[stri
 	if err != nil {
 		return nil, err
 	}
+	if resp == nil || resp.Body == nil {
+		return nil, errors.New("nil resp")
+	}
 	err = s.constructPage(resp)
 	if err != nil {
 		return nil, err
@@ -297,6 +303,9 @@ func (s *Downloader) PostRaw(link string, data []byte, header map[string]string)
 	resp, err := s.Client.Do(req)
 	if err != nil {
 		return nil, err
+	}
+	if resp == nil || resp.Body == nil {
+		return nil, errors.New("nil resp")
 	}
 	err = s.constructPage(resp)
 	if err != nil {
