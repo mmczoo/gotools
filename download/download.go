@@ -108,7 +108,7 @@ func (self *Downloader) SetProxy(p *hproxy.Proxy) {
 	}
 
 	self.Client.Transport = transport
-	dlog.Warn("use proxy: %s", p.String())
+	//dlog.Warn("use proxy: %s", p.String())
 }
 
 const (
